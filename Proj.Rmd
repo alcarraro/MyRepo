@@ -1,0 +1,95 @@
+---
+title: "Project"
+author: "Alberto Carraro"
+date: "20 giugno 2015"
+output: html_document
+---
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+Import the datasets.
+```{r}
+library(caret); library(randomForest)
+set.seed(44444)
+
+pml.testing <- read.csv("pml-testing.csv")
+pml.training <- read.csv("pml-training.csv")
+```
+
+Looking at what type of data we have to predict, we can select the relevant predictors.
+Remove all NA columns.
+```{r}
+allmisscols <- apply(pml.testing,2, function(x){all(is.na(x))});
+keepPredictors <- which(!allmisscols)
+```
+
+Remove other "decorative"" columns, that have time variant information.
+```{r}
+decorativeColumns = c("X","user_name", "raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window", "problem_id")
+keepPredictors <- keepPredictors[!names(keepPredictors) %in% decorativeColumns]
+```
+
+Clean the training data set and keep only the "not calculated" data row, that are not available in the testing set.
+```{r}
+trainingDF <- pml.training[which(pml.training$new_window == "no"),]
+```
+
+Save the predictors...
+```{r}
+classeCol <- trainingDF$classe
+trainingDF <- trainingDF[keepPredictors]
+```
+
+... with the outcome.
+```{r}
+trainingDF$classe <- classeCol
+```
+
+Make the training/testing partition.
+```{r}
+inTrain <- createDataPartition(y = trainingDF$classe, p = 0.70, list = FALSE)
+training <- trainingDF[inTrain,]
+testing <- trainingDF[-inTrain,]
+
+outcomeidx = which(colnames(training) == "classe")
+```
+
+Do cross validation to avoid overfitting and find the best predictors, use random forest because it is a classification problem with non linear data.
+```{r}
+crossValidation <- rfcv(trainx = training[,-outcomeidx], trainy = training[,outcomeidx])
+```
+
+Get the number of useful predictors: plot the error versus the number of predictors and note that if you use a larger number of predictors, the error doesn't decrease significantly. So select a good threshold behind which the error doesn't decrease significantly.
+```{r}
+plot(crossValidation$n.var,crossValidation$error.cv)
+numpred <- max(which(crossValidation$error.cv < 0.015))
+numpred <- crossValidation$n.var[numpred]
+```
+
+Get the best predictors, fitting the model for the first time, on all the predictors, then select only the predictors of best importance
+```{r}
+bestpredictors = order(importance(randomForest(classe ~., data=training)), decreasing = TRUE)[1:numpred]
+```
+
+Fit the model with only the best predictors.
+```{r}
+modelFit <- randomForest(training[,bestpredictors], training$classe)
+```
+
+Finally test the model on testing dataset, and see that confusion matrix is good,
+```{r}
+prediction <- predict(modelFit, newdata = testing)
+confusionMatrix(prediction, testing$classe)
+```
+
+And answer for the submission ;)
+```{r}
+answer <- predict(modelFit, newdata = pml.testing[colnames(testing[, -outcomeidx])])
+```
+
+
+
+
+
